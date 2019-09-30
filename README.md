@@ -1,6 +1,12 @@
 # The poem machine
 
-## How it works - software
+## Images of the thing
+
+![Poem machine front](https://linus.space/poem_machine_1.jpg)
+
+![A look inside](https://linus.space/poem_machine_2.jpg)
+
+## How it works
 
 Inside the poem machine sits a ESP-8266, which is similar to an arduino, but it can connect to WiFi and is a bit more powerful. The ESP doesn't actually do much itself. Let's just run through what happens when you press the button on the poem machine:
 
@@ -17,7 +23,11 @@ Inside the poem machine sits a ESP-8266, which is similar to an arduino, but it 
 
 That's it.
 
-The code for the ESP is in this repo, and there is another repo for the server backend: <TODO: insert link>
+The ESP also uses [this program](https://github.com/tzapu/WiFiManager) to facilitate login into new wifi networks.
+
+## Source code
+
+[The server backend.](https://github.com/glatteis/poemspublic)
 
 ## Hardware
 
