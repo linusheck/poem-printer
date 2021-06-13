@@ -1,40 +1,5 @@
-#include <ESP8266WiFi.h>
-
-#include <DNSServer.h>
-#include <ESP8266WebServer.h>
-#include "SoftwareSerial.h"
-#include <WiFiManager.h>
-
-#include <WiFiClient.h>
-#include <ESP8266HTTPClient.h>
-
-#include <base64.hpp>
-
-// SORRY NOT SORRY FOR THIS CODE.
-
-#define TX_PIN 5 // Arduino transmit  YELLOW WIRE  labeled RX on printer
-#define RX_PIN 4 // Arduino receive   GREEN WIRE   labeled TX on printer
-
-SoftwareSerial printerSerial(RX_PIN, TX_PIN);
-WiFiManager wifiManager;
-
-#define HEIGHT 24
-#define WIDTH 48 // bytes
-#define CHUNK_SIZE HEIGHT * WIDTH
-String chunkSizeString = String(CHUNK_SIZE);
-
-#define simplePrint(x) wakeUp(); printerSerial.print((char) 10); printerSerial.println(x); printerSerial.print((char) 10); printerSerial.print((char) 10); 
-#define STYLE "<style>body { font-family: monospace; background: beige; } button {border: 0; background-color: #000; color: #fff; line-height: 2.4rem; font-size: 1.2rem; width: 100%; font-family: monospace; } </style>"
-#define PARAGRAPH "<p>SLOGAN OF YOUR PROJECT</p>"
-
-// Have not tested this after inserting templates. If something doesn't work it's maybe because of these lines
-const String BACKEND_URL = String("your.backend.url");
-#define WIFI_NAME "" // name of your WiFi network
-const String OPENWEATHERMAP_ID = String(""); // OpenWeatherMap location id
-const String OPENWEATHERMAP_UNITS = String("metric"); // OpenWeatherMap units
-const String OPENWEATHERMAP_LANG = String("en"); // OpenWeatherMap language
-
-boolean wifiNotFound = false;
+#include "main.h"
+#include "config.h"
 
 void setup() {
   pinMode(12, OUTPUT);
@@ -57,34 +22,54 @@ void setup() {
 
 void configModeCallback(WiFiManager *manager) {
   wifiNotFound = true;
-  simplePrint(F("Did not found WiFi\nnetwork! Please\nconfigure it."));
+  simplePrint(F("Did not find WiFi network!\nPlease configure it."));
 }
 
 void loop() {
-  if (digitalRead(13) == LOW) {
-    uint64_t m = millis();
-    uint64_t debounceDelay = 50;
-    uint64_t lastDebounceTime = millis();
-    bool lastDebounceReading = LOW;
-    while (true) {
-      bool reading = digitalRead(13);
+  // We model the double / triple click using a state machine
+  // no click -> click -> double click -> triple click
+  static uint8_t state = NO_CLICK;
+  static uint64_t lastClick = millis();
+  static bool currentlyPressing = false;
 
-      if (reading != lastDebounceReading) {
-        lastDebounceTime = millis();
-        lastDebounceReading = reading;
+  static uint64_t debounceDelay = 50;
+  static uint64_t lastDebounceTime = millis();
+  static bool lastDebounceReading = HIGH;
+  bool reading = digitalRead(13);
+
+  if (reading != lastDebounceReading) {
+    lastDebounceTime = millis();
+    lastDebounceReading = reading;
+  }
+
+  if ((millis() - lastDebounceTime) > debounceDelay) {
+    if (reading == LOW && !currentlyPressing) {
+      if (state < TRIPLE_CLICK) {
+        lastClick = millis();
+        state++;
+        currentlyPressing = true;
       }
-
-      if ((millis() - lastDebounceTime) > debounceDelay && reading == HIGH) {
-        uint64_t interval = millis() - m;
+    } else if (reading == HIGH) {
+      currentlyPressing = false;
+      if (state > NO_CLICK && (millis() - lastClick) > 1000) {
+        // PRINT
         wakeUp();
         setPrintingSpeed();
-        if (interval > 1000) {
-          printWeather();
-        } else {
-          printPoem();
+        switch (state) {
+          case NO_CLICK:
+            break;
+          case CLICK:
+            printPoem();
+            break;
+          case DOUBLE_CLICK:
+            printWeather();
+            break;
+          case TRIPLE_CLICK:
+            printNews();
+            break;
         }
         goToSleep();
-        break;
+        state = NO_CLICK;
       }
     }
   }
@@ -123,7 +108,7 @@ void printPoem() {
 
   // First of all, get the poem's name
   String poemName;
-  if (http.begin(client, "http://" + BACKEND_URL + "/name")) {
+  if (http.begin(client, String("http://") + BACKEND_URL + "/name")) {
     int httpCode = http.GET();
     if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
       poemName = http.getString();
@@ -135,6 +120,10 @@ void printPoem() {
 
 void printWeather() {
   print("weather?id=" + OPENWEATHERMAP_ID + "&units=" + OPENWEATHERMAP_UNITS + "&lang=" + OPENWEATHERMAP_LANG);
+}
+
+void printNews() {
+  print("news?time=" + String(millis()));
 }
 
 void print(String name) {
@@ -152,14 +141,14 @@ void print(String name) {
 
     String posString = String(pos);
     // Now, print it chunk by chunk
-    if (http.begin(client, "http://" + BACKEND_URL + "/" + name + 
-        "&length=" + chunkSizeString + "&from=" + pos)) {
+    if (http.begin(client, String("http://") + BACKEND_URL + "/" + name + 
+          "&length=" + chunkSizeString + "&from=" + pos)) {
       int httpCode = http.GET();
       if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
         String content = http.getString();
         length = content.substring(0, content.indexOf("\n")).toInt();
         String base64 = content.substring(content.indexOf("\n") + 1);
-        
+
         char src[base64.length()];
         base64.toCharArray(src, base64.length());
         unsigned char binary[CHUNK_SIZE];
@@ -167,7 +156,7 @@ void print(String name) {
         for (int i = 0; i < CHUNK_SIZE; i++) {
           binary[i] = 0;
         }
-  
+
         decode_base64((unsigned char*) src, binary);
 
         for (int i = 0; i < CHUNK_SIZE; i++) {
